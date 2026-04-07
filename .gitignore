@@ -2,6 +2,10 @@
 *.exe
 *.pdb
 *.runtimeconfig.json
+*.cs
+*.csproj
+*.deps.json
 bin/
 obj/
 test-cs/
+test
