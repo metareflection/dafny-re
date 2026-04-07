@@ -1,0 +1,7 @@
+*.dll
+*.exe
+*.pdb
+*.runtimeconfig.json
+bin/
+obj/
+test-cs/
