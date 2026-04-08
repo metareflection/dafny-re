@@ -16,84 +16,77 @@ finite automata:
    a coinductive codatatype)
 2. **Operational semantics** — Brzozowski derivatives (`Eps`, `Delta`)
 3. **Bisimilarity proof** — the two semantics coincide
-4. **Verified matcher** — fold `Delta` over input, check `Eps`;
+4. **Verified interpreter** — fold `Delta` over input, check `Eps`;
    proven correct against the denotational spec
 5. **Expression normalization** — algebraic simplifications, proven
    to preserve semantics
-6. **DFA compiler** — BFS over normalized derivatives produces a
-   transition table; matching is O(n) with O(1) per character
+6. **Verified DFA compiler** — BFS over normalized derivatives produces a
+   transition table, proven to accept exactly `Matches(e, s)`
+7. **Self-certifying codegen** — emit a specialized Dafny matcher with
+   no maps or expression types at runtime, carrying its own correctness proof
 
 No backtracking at any stage.
 
 ## Files
 
-| File | Lines | What it does |
-|------|-------|--------------|
-| `re.dfy` | Core theory from the paper: `Exp`, `Lang`, `Denotational`, `Operational`, bisimilarity, algebra/coalgebra homomorphism proofs |
-| `walk.dfy` | `Walk` (fold delta over a string), `Matches` spec, `MatchesEquivFoldDelta` |
-| `match.dfy` | `Match` method — verified on-the-fly derivative matcher |
-| `normalize.dfy` | `Normalize` with algebraic laws + `NormalizeCorrect` proof |
-| `compile.dfy` | `Compile` (BFS to DFA) + `DFAMatch` (table-driven matcher) |
-| `test.dfy` | Smoke tests for both matchers |
+| File | What |
+|------|------|
+| `re.dfy` | Core theory: `Exp`, `Lang`, `Denotational`, `Operational`, bisimilarity, homomorphism proofs |
+| `walk.dfy` | `Walk`, `FoldDelta`, `Matches` spec, `MatchesEquivFoldDelta` |
+| `match.dfy` | `Match` — verified on-the-fly derivative interpreter |
+| `normalize.dfy` | `Normalize` with algebraic laws + `NormalizeCorrect` |
+| `bridge.dfy` | `FoldNDeltaCorrect` — connects normalized derivative fold to `Matches` |
+| `compile.dfy` | `Compile` (BFS to DFA) + `DFAMatch` — both proven correct |
+| `gen_star_ab_a.dfy` | Example generated matcher for `(a\|b)*a` — 2-state DFA, self-certifying |
+| `test.dfy` | Smoke tests |
 
 ## Requirements
 
-- [Dafny](https://github.com/dafny-lang/dafny) 4.x
+[Dafny](https://github.com/dafny-lang/dafny) 4.x
 
 ## Verify
 
 ```sh
-dafny verify re.dfy walk.dfy match.dfy normalize.dfy compile.dfy
+dafny verify re.dfy walk.dfy match.dfy normalize.dfy bridge.dfy compile.dfy gen_star_ab_a.dfy
 ```
 
-Expected output: **78 verified, 0 errors**.
+Expected: **111 verified, 0 errors**.
 
 ## Run
 
 ```sh
+# On-the-fly derivative matcher + verified DFA
 dafny run test.dfy --target cs --no-verify
+
+# Self-certifying specialized matcher for (a|b)*a
+dafny run gen_star_ab_a.dfy --target cs --no-verify
 ```
 
-Example output:
-```
-=== Derivative matcher ===
-(a|b)*a  "a"    => true
-(a|b)*a  "ba"   => true
-(a|b)*a  "ab"   => false
-(a|b)*a  "abba" => true
-(a|b)*a  ""     => false
+## What is proven
 
-=== Compiled DFA ===
-DFA states: 2
-(a|b)*a  "a"    => true
-(a|b)*a  "ba"   => true
-(a|b)*a  "ab"   => false
-(a|b)*a  "abba" => true
-(a|b)*a  ""     => false
-
-=== a(a|b) via DFA ===
-DFA states: 4
-a(a|b)  "ab" => true
-a(a|b)  "ba" => false
-a(a|b)  "aa" => true
-a(a|b)  "a"  => false
-```
-
-## Verified vs unverified
-
-The correctness chain that is fully machine-checked:
+The complete verified chain:
 
 ```
-Match(e, s) == Matches(e, s)           -- match.dfy
-Matches(e, s) == Eps(FoldDelta(e, s))  -- walk.dfy (MatchesEquivFoldDelta)
-Bisimilar(Denotational(Normalize(e)),
-          Denotational(e))             -- normalize.dfy (NormalizeCorrect)
+MatchSpecialized(s)
+  == Eps(FoldNDelta(Normalize(e), s))     gen_star_ab_a.dfy
+  == Matches(e, s)                        bridge.dfy  (FoldNDeltaCorrect)
+  == Eps(FoldDelta(e, s))                 walk.dfy    (MatchesEquivFoldDelta)
+  == Match(e, s)                          match.dfy
+
+DFAMatch(Compile(e, alpha), e, s, alpha)
+  == DFAAccepts(dfa, s, alpha)            compile.dfy (DFAMatch spec)
+  == Matches(e, s)                        compile.dfy (DFAAcceptsCorrect)
 ```
 
-What is *not* yet proven:
-- BFS termination in `Compile` (uses `decreases *`)
-- End-to-end `DFAAccepts(dfa, s) <==> Matches(e, s)`
-- `Comp(e, One) = e` (Z3 timeout on the coinductive proof)
-- `Star(Star(e)) = Star(e)`, full ACI of `Plus`
+Every arrow is a machine-checked Dafny proof. The generated matcher
+(`gen_star_ab_a.dfy`) has no maps, no expression types, no codatatypes
+at runtime — just integer state transitions verified against the
+denotational semantics.
 
-See [DESIGN.md](DESIGN.md) for details.
+## What is not proven
+
+- **BFS termination** in `Compile` (uses `decreases *`). Proving
+  finiteness of derivative classes requires formalizing Brzozowski's
+  theorem.
+- **`Comp(e, One) = e`** — Z3 timeout on the coinductive proof.
+- **`Star(Star(e)) = Star(e)`**, full ACI of `Plus`.
