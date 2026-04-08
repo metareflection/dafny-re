@@ -37,7 +37,8 @@ No backtracking at any stage.
 | `normalize.dfy` | `Normalize` with algebraic laws + `NormalizeCorrect` |
 | `bridge.dfy` | `FoldNDeltaCorrect` — connects normalized derivative fold to `Matches` |
 | `compile.dfy` | `Compile` (BFS to DFA) + `DFAMatch` — both proven correct |
-| `gen_star_ab_a.dfy` | Example generated matcher for `(a\|b)*a` — 2-state DFA, self-certifying |
+| `codegen.dfy` | `Codegen` — generates a self-certifying Dafny matcher from a regex |
+| `gen_star_ab_a.dfy` | Example output of `Codegen` for `(a\|b)*a` — 2-state DFA, self-certifying |
 | `test.dfy` | Smoke tests |
 
 ## Requirements
@@ -47,10 +48,10 @@ No backtracking at any stage.
 ## Verify
 
 ```sh
-dafny verify re.dfy walk.dfy match.dfy normalize.dfy bridge.dfy compile.dfy gen_star_ab_a.dfy
+dafny verify re.dfy walk.dfy match.dfy normalize.dfy bridge.dfy compile.dfy codegen.dfy gen_star_ab_a.dfy
 ```
 
-Expected: **111 verified, 0 errors**.
+Expected: **115 verified, 0 errors**.
 
 ## Run
 
@@ -82,6 +83,37 @@ Every arrow is a machine-checked Dafny proof. The generated matcher
 (`gen_star_ab_a.dfy`) has no maps, no expression types, no codatatypes
 at runtime — just integer state transitions verified against the
 denotational semantics.
+
+## Codegen
+
+`Codegen` takes a regex and alphabet at runtime, runs BFS over
+normalized derivatives, and prints a complete Dafny source file.
+The output is a self-certifying matcher — Dafny verifies it
+independently, with no trust required in the generator.
+
+```sh
+# Write a codegen driver
+cat > my_codegen.dfy << 'EOF'
+include "codegen.dfy"
+method Main() decreases * {
+  var code := Codegen(Comp(Star(Plus(Char('a'), Char('b'))), Char('a')), {'a', 'b'});
+  print code;
+}
+EOF
+
+# Generate and save
+dafny run my_codegen.dfy --target cs --no-verify > gen_my_matcher.dfy
+
+# Verify the generated code (no trust in the generator!)
+dafny verify gen_my_matcher.dfy
+```
+
+The generated file contains:
+- `Trans(state, c)` — inlined DFA transitions (pure function on nats)
+- `MatchSpecialized(s)` — the matcher, with `ensures accepts == Eps(FoldNDelta(Normalize(TheExpr()), s))`
+- Transition correctness lemmas verified by Z3 on ground terms
+- `FoldTransCorrect` — proof that `Trans` tracks normalized derivatives
+- No maps, no `Exp` types, no codatatypes at runtime
 
 ## What is not proven
 
