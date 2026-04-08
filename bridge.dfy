@@ -27,6 +27,20 @@ lemma FoldNDeltaEps<A(!new)>(e: Exp, s: seq<A>)
   }
 }
 
+/** FoldNDelta(e, s + [a]) == NDelta(FoldNDelta(e, s), a). */
+lemma FoldNDeltaAppend<A(!new)>(e: Exp, s: seq<A>, a: A)
+  ensures FoldNDelta(e, s + [a]) == NDelta(FoldNDelta(e, s), a)
+  decreases |s|
+{
+  if |s| == 0 {
+    assert s + [a] == [a];
+  } else {
+    assert (s + [a])[0] == s[0];
+    assert (s + [a])[1..] == s[1..] + [a];
+    FoldNDeltaAppend(NDelta(e, s[0]), s[1..], a);
+  }
+}
+
 /** Main bridge: Eps(FoldNDelta(Normalize(e), s)) == Matches(e, s). */
 lemma FoldNDeltaCorrect<A(!new)>(e: Exp, s: seq<A>)
   ensures Eps(FoldNDelta(Normalize(e), s)) == Matches(e, s)
