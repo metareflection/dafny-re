@@ -4,7 +4,7 @@ Verified regular expression matching in [Dafny](https://dafny.org/),
 built on the coalgebraic semantics of Brzozowski derivatives.
 
 Based on: *Well-Behaved (Co)algebraic Semantics of Regular Expressions
-in Dafny* by S. Zetzsche and W. Rozowski
+in Dafny* by Stefan Zetzsche and Wojciech Rozowski
 ([arXiv:2409.09889](https://arxiv.org/abs/2409.09889)).
 
 ## What this is
