@@ -14,7 +14,7 @@ ghost function Walk<A>(L: Languages.Lang, s: seq<A>): Languages.Lang
 function FoldDelta<A(==)>(e: Exp<A>, s: seq<A>): Exp<A>
   decreases |s|
 {
-  if |s| == 0 then e else FoldDelta(Delta(e)(s[0]), s[1..])
+  if |s| == 0 then e else FoldDelta(Delta(e, s[0]), s[1..])
 }
 
 /** The specification predicate: does expression e match string s? */
@@ -47,8 +47,8 @@ lemma OperationalWalkEps<A(!new)>(e: Exp, s: seq<A>)
   decreases |s|
 {
   if |s| != 0 {
-    assert Operational(e).delta(s[0]) == Operational(Delta(e)(s[0]));
-    OperationalWalkEps(Delta(e)(s[0]), s[1..]);
+    assert Operational(e).delta(s[0]) == Operational(Delta(e, s[0]));
+    OperationalWalkEps(Delta(e, s[0]), s[1..]);
   }
 }
 

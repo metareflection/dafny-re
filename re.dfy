@@ -104,35 +104,34 @@ function Eps<A>(e: Exp): bool {
   case Star(e1) => true
 }
 
-function Delta<A(==)>(e: Exp): A -> Exp {
-  (a: A) =>
-    match e
-    case Zero => Zero
-    case One => Zero
-    case Char(b) => if a == b then One else Zero
-    case Plus(e1, e2) => Plus(Delta(e1)(a), Delta(e2)(a))
-    case Comp(e1, e2) =>
-      Plus(Comp(Delta(e1)(a), e2), Comp(if Eps(e1) then One else Zero, Delta(e2)(a)))
-    case Star(e1) => Comp(Delta(e1)(a), Star(e1))
+function Delta<A(==)>(e: Exp, a: A): Exp {
+  match e
+  case Zero => Zero
+  case One => Zero
+  case Char(b) => if a == b then One else Zero
+  case Plus(e1, e2) => Plus(Delta(e1, a), Delta(e2, a))
+  case Comp(e1, e2) =>
+    Plus(Comp(Delta(e1, a), e2), Comp(if Eps(e1) then One else Zero, Delta(e2, a)))
+  case Star(e1) => Comp(Delta(e1, a), Star(e1))
 }
 
 /*** Section 3.2: Operational Semantics as Induced Morphism ***/
 
 function Operational<A(==)>(e: Exp): Languages.Lang {
-  Languages.Alpha(Eps(e), (a: A) => Operational(Delta(e)(a)))
+  Languages.Alpha(Eps(e), (a: A) => Operational(Delta(e, a)))
 }
 
 /*** Section 3.3: Operational Semantics as Coalgebra Homomorphism ***/
 
 ghost predicate IsCoalgebraHomomorphism<A(!new)>(f: Exp -> Languages.Lang) {
   && (forall e :: f(e).eps == Eps(e))
-  && (forall e, a :: Bisimilar(f(e).delta(a), f(Delta(e)(a))))
+  && (forall e, a :: Bisimilar(f(e).delta(a), f(Delta(e, a))))
 }
 
 lemma OperationalIsCoalgebraHomomorphism<A(!new)>()
   ensures IsCoalgebraHomomorphism<A>(Operational)
 {
-  forall e, a ensures Bisimilar<A>(Operational(e).delta(a), Operational(Delta(e)(a))) {
+  forall e, a ensures Bisimilar<A>(Operational(e).delta(a), Operational(Delta(e, a))) {
     BisimilarityIsReflexive(Operational(e).delta(a));
   }
 }
@@ -197,7 +196,7 @@ lemma DenotationalEps<A(!new)>(e: Exp)
 {}
 
 lemma DenotationalDelta<A(!new)>(e: Exp, a: A)
-  ensures Bisimilar<A>(Denotational(e).delta(a), Denotational(Delta(e)(a)))
+  ensures Bisimilar<A>(Denotational(e).delta(a), Denotational(Delta(e, a)))
   decreases e, 1
 {
   match e {
@@ -218,25 +217,25 @@ lemma DenotationalDelta<A(!new)>(e: Exp, a: A)
 
 lemma DenotationalDeltaPlus<A(!new)>(e1: Exp, e2: Exp, a: A)
   ensures Bisimilar<A>(Denotational<A>(Plus(e1, e2)).delta(a),
-                       Denotational(Delta<A>(Plus(e1, e2))(a)))
+                       Denotational(Delta<A>(Plus(e1, e2), a)))
   decreases Plus(e1, e2), 0
 {
   DenotationalDelta(e1, a);
   DenotationalDelta(e2, a);
-  PlusCongruence(Denotational(e1).delta(a), Denotational(Delta(e1)(a)),
-                 Denotational(e2).delta(a), Denotational(Delta(e2)(a)));
+  PlusCongruence(Denotational(e1).delta(a), Denotational(Delta(e1, a)),
+                 Denotational(e2).delta(a), Denotational(Delta(e2, a)));
 }
 
 lemma DenotationalDeltaComp<A(!new)>(e1: Exp, e2: Exp, a: A)
   ensures Bisimilar<A>(Denotational<A>(Comp(e1, e2)).delta(a),
-                       Denotational(Delta<A>(Comp(e1, e2))(a)))
+                       Denotational(Delta<A>(Comp(e1, e2), a)))
   decreases Comp(e1, e2), 0
 {
   DenotationalEps(e1);
   var D1 := Denotational(e1);
   var D2 := Denotational(e2);
-  var D1a := Denotational(Delta(e1)(a));
-  var D2a := Denotational(Delta(e2)(a));
+  var D1a := Denotational(Delta(e1, a));
+  var D2a := Denotational(Delta(e2, a));
   var cond := if Eps(e1) then Languages.One<A>() else Languages.Zero<A>();
   assert cond == if D1.eps then Languages.One<A>() else Languages.Zero<A>();
 
@@ -286,12 +285,12 @@ lemma DenotationalDeltaCompCombine<A(!new)>(
 
 lemma DenotationalDeltaStar<A(!new)>(e1: Exp, a: A)
   ensures Bisimilar<A>(Denotational<A>(Star(e1)).delta(a),
-                       Denotational(Delta<A>(Star(e1))(a)))
+                       Denotational(Delta<A>(Star(e1), a)))
   decreases Star(e1), 0
 {
   DenotationalDelta(e1, a);
   BisimilarityIsReflexive(Languages.Star(Denotational(e1)));
-  CompCongruence(Denotational(e1).delta(a), Denotational(Delta(e1)(a)),
+  CompCongruence(Denotational(e1).delta(a), Denotational(Delta(e1, a)),
                  Languages.Star(Denotational(e1)), Languages.Star(Denotational(e1)));
 }
 
@@ -301,7 +300,7 @@ lemma DenotationalIsCoalgebraHomomorphism<A(!new)>()
   forall e ensures Denotational<A>(e).eps == Eps<A>(e) {
     DenotationalEps(e);
   }
-  forall e, a ensures Bisimilar<A>(Denotational<A>(e).delta(a), Denotational(Delta<A>(e)(a))) {
+  forall e, a ensures Bisimilar<A>(Denotational<A>(e).delta(a), Denotational(Delta<A>(e, a))) {
     DenotationalDelta(e, a);
   }
 }
@@ -357,10 +356,10 @@ lemma UniqueCoalgebraHomomorphismHelperPointwise<A(!new)>
   if k != 0 {
     forall a ensures Bisimilar#[k-1](L1.delta(a), L2.delta(a)) {
       BisimilarityIsTransitivePointwise(
-        k-1, L1.delta(a), f(e).delta(a), f(Delta(e)(a))
+        k-1, L1.delta(a), f(e).delta(a), f(Delta(e, a))
       );
       BisimilarityIsTransitivePointwise(
-        k-1, L2.delta(a), g(e).delta(a), g(Delta(e)(a))
+        k-1, L2.delta(a), g(e).delta(a), g(Delta(e, a))
       );
       UniqueCoalgebraHomomorphismHelperPointwise(
         k-1, f, g, L1.delta(a), L2.delta(a)

@@ -117,7 +117,7 @@ method Compile(e: Exp<char>, alphabet: set<char>) returns (dfa: DFA)
         invariant forall j :: 0 <= j < ci ==> (sid, alphaSeq[j]) in trans
       {
         var c := alphaSeq[ci];
-        var next := Normalize(Delta(expr)(c));
+        var next := Normalize(Delta(expr, c));
 
         if next !in stateOf {
           var nextId := |states|;

@@ -40,15 +40,15 @@ function NormStar<A(==)>(e: Exp<A>): Exp<A> {
 }
 
 /** Normalized derivative: Delta then Normalize. */
-function NDelta<A(==)>(e: Exp<A>): A -> Exp<A> {
-  (a: A) => Normalize(Delta(e)(a))
+function NDelta<A(==)>(e: Exp<A>, a: A): Exp<A> {
+  Normalize(Delta(e, a))
 }
 
 /** Fold normalized derivatives over a string. */
 function FoldNDelta<A(==)>(e: Exp<A>, s: seq<A>): Exp<A>
   decreases |s|
 {
-  if |s| == 0 then e else FoldNDelta(NDelta(e)(s[0]), s[1..])
+  if |s| == 0 then e else FoldNDelta(NDelta(e, s[0]), s[1..])
 }
 
 /*============================================================================

@@ -17,16 +17,16 @@ method Match(e: Exp<char>, s: seq<char>) returns (accepts: bool)
   {
     assert s[..i+1] == s[..i] + [s[i]];
     FoldDeltaAppend(e, s[..i], s[i]);
-    current := Delta(current)(s[i]);
+    current := Delta(current, s[i]);
   }
   assert s[..|s|] == s;
   accepts := Eps(current);
 }
 
-/** FoldDelta(e, s + [a]) == FoldDelta(Delta(FoldDelta(e, s))(a), [])
-    i.e., appending one character is the same as one more Delta step. */
+/** FoldDelta(e, s + [a]) == Delta(FoldDelta(e, s), a).
+    Appending one character is the same as one more Delta step. */
 lemma FoldDeltaAppend<A(!new)>(e: Exp<A>, s: seq<A>, a: A)
-  ensures FoldDelta(e, s + [a]) == Delta(FoldDelta(e, s))(a)
+  ensures FoldDelta(e, s + [a]) == Delta(FoldDelta(e, s), a)
   decreases |s|
 {
   if |s| == 0 {
@@ -34,6 +34,6 @@ lemma FoldDeltaAppend<A(!new)>(e: Exp<A>, s: seq<A>, a: A)
   } else {
     assert (s + [a])[0] == s[0];
     assert (s + [a])[1..] == s[1..] + [a];
-    FoldDeltaAppend(Delta(e)(s[0]), s[1..], a);
+    FoldDeltaAppend(Delta(e, s[0]), s[1..], a);
   }
 }
