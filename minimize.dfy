@@ -316,11 +316,13 @@ lemma AlphaSeqIsAlphabet(alphaSeq: seq<char>, alphabet: set<char>)
   forall c ensures c in s <==> c in alphabet {}
 }
 
-method {:verification_time_limit 120} {:isolate_assertions} Minimize(dfa: DFA, alphabet: set<char>) returns (minDfa: DFA)
-  requires WellFormedDFA(dfa, alphabet)
+method {:verification_time_limit 120} {:isolate_assertions} Minimize(dfa: DFA, e: Exp<char>, alphabet: set<char>) returns (minDfa: DFA)
+  requires DFACorrect(dfa, e, alphabet)
   requires |alphabet| > 0
   decreases *
   ensures WellFormedDFA(minDfa, alphabet)
+  ensures forall s :: (forall i :: 0 <= i < |s| ==> s[i] in alphabet) ==>
+    DFAAccepts(minDfa, s, alphabet) == Matches(e, s)
 {
   var alphaSeq := SetToSeq(alphabet);
   AlphaSeqIsAlphabet(alphaSeq, alphabet);
@@ -329,6 +331,13 @@ method {:verification_time_limit 120} {:isolate_assertions} Minimize(dfa: DFA, a
   var numClasses: nat;
   partition, numClasses, repr := MooreRefine(dfa, alphaSeq);
   minDfa := BuildMinDFA(dfa, partition, numClasses, repr, alphaSeq);
+
+  forall s | (forall i :: 0 <= i < |s| ==> s[i] in alphabet)
+    ensures DFAAccepts(minDfa, s, alphabet) == Matches(e, s)
+  {
+    MinimizePreservesLanguage(dfa, minDfa, partition, e, s, alphabet);
+    DFAAcceptsCorrect(dfa, e, s, alphabet);
+  }
 }
 
 lemma MinimizePreservesLanguage(dfa: DFA, minDfa: DFA, partition: seq<nat>, e: Exp<char>, s: seq<char>, alphabet: set<char>)
