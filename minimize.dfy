@@ -35,14 +35,15 @@ lemma ComputeSuccClassesCorrect(dfa: DFA, partition: seq<nat>, state: nat, alpha
   if ci > idx { ComputeSuccClassesCorrect(dfa, partition, state, alphaSeq, idx + 1, ci); }
 }
 
-// Build initial partition: all states get class 0 or 1 based on accepting
-method InitPartition(dfa: DFA) returns (partition: seq<nat>, numClasses: nat)
+method InitPartition(dfa: DFA) returns (partition: seq<nat>, numClasses: nat, repr: seq<nat>)
   requires dfa.nStates > 0
   ensures |partition| == dfa.nStates
   ensures numClasses >= 1 && numClasses <= dfa.nStates
   ensures forall i :: 0 <= i < dfa.nStates ==> partition[i] < numClasses
   ensures forall i, j :: 0 <= i < dfa.nStates && 0 <= j < dfa.nStates && partition[i] == partition[j] ==>
     (i in dfa.accepting <==> j in dfa.accepting)
+  ensures |repr| == numClasses
+  ensures forall c :: 0 <= c < numClasses ==> repr[c] < dfa.nStates && partition[repr[c]] == c
 {
   var hasAcc := false;
   var hasNonAcc := false;
@@ -58,39 +59,44 @@ method InitPartition(dfa: DFA) returns (partition: seq<nat>, numClasses: nat)
   }
   if hasAcc && hasNonAcc {
     numClasses := 2;
-    assert dfa.nStates >= 2 by {
-      var a :| 0 <= a < dfa.nStates && a in dfa.accepting;
-      var b :| 0 <= b < dfa.nStates && b !in dfa.accepting;
-    }
+    var a :| 0 <= a < dfa.nStates && a in dfa.accepting;
+    var b :| 0 <= b < dfa.nStates && b !in dfa.accepting;
+    repr := [b, a]; // repr[0] = non-accepting, repr[1] = accepting
   } else if hasAcc {
     numClasses := 1;
     partition := seq(dfa.nStates, _ => 0);
+    repr := [0];
   } else {
     numClasses := 1;
+    repr := [0];
   }
 }
 
-// Assign class ids to signatures
 method AssignClasses(sigs: seq<Signature>, n: nat)
-    returns (newPartition: seq<nat>, numNew: nat)
+    returns (newPartition: seq<nat>, numNew: nat, classFirst: seq<nat>)
   requires |sigs| == n
   ensures |newPartition| == n
   ensures numNew <= n
   ensures n > 0 ==> numNew >= 1
   ensures forall i :: 0 <= i < n ==> newPartition[i] < numNew
   ensures forall i, j :: 0 <= i < n && 0 <= j < n && newPartition[i] == newPartition[j] ==> sigs[i] == sigs[j]
+  ensures |classFirst| == numNew
+  ensures forall c :: 0 <= c < numNew ==> classFirst[c] < n && newPartition[classFirst[c]] == c
 {
   var sigToClass: map<Signature, nat> := map[];
   var nextClass: nat := 0;
   newPartition := [];
+  classFirst := [];
 
   for k := 0 to n
     invariant |newPartition| == k
     invariant nextClass <= k && nextClass <= n
+    invariant |classFirst| == nextClass
     invariant forall i :: 0 <= i < k ==> newPartition[i] < nextClass
     invariant forall sig :: sig in sigToClass ==> sigToClass[sig] < nextClass
     invariant forall i :: 0 <= i < k ==> sigs[i] in sigToClass && newPartition[i] == sigToClass[sigs[i]]
     invariant forall s1, s2 :: s1 in sigToClass && s2 in sigToClass && sigToClass[s1] == sigToClass[s2] ==> s1 == s2
+    invariant forall c :: 0 <= c < nextClass ==> classFirst[c] < k && newPartition[classFirst[c]] == c
   {
     var sig := sigs[k];
     if sig in sigToClass {
@@ -98,6 +104,7 @@ method AssignClasses(sigs: seq<Signature>, n: nat)
     } else {
       sigToClass := sigToClass[sig := nextClass];
       newPartition := newPartition + [nextClass];
+      classFirst := classFirst + [k];
       nextClass := nextClass + 1;
     }
   }
@@ -105,9 +112,8 @@ method AssignClasses(sigs: seq<Signature>, n: nat)
   if n > 0 { assert newPartition[0] < nextClass; }
 }
 
-// One refinement step
 method RefinePartition(dfa: DFA, partition: seq<nat>, alphaSeq: seq<char>)
-    returns (newPartition: seq<nat>, newNumClasses: nat)
+    returns (newPartition: seq<nat>, newNumClasses: nat, newRepr: seq<nat>)
   requires |partition| == dfa.nStates && dfa.nStates > 0
   requires forall i :: 0 <= i < dfa.nStates ==> partition[i] < dfa.nStates
   requires forall i, c :: 0 <= i < dfa.nStates && c in alphaSeq ==>
@@ -120,6 +126,8 @@ method RefinePartition(dfa: DFA, partition: seq<nat>, alphaSeq: seq<char>)
   ensures forall i, j :: 0 <= i < dfa.nStates && 0 <= j < dfa.nStates && newPartition[i] == newPartition[j] ==>
     forall ci :: 0 <= ci < |alphaSeq| ==>
       partition[dfa.trans[(i, alphaSeq[ci])]] == partition[dfa.trans[(j, alphaSeq[ci])]]
+  ensures |newRepr| == newNumClasses
+  ensures forall c :: 0 <= c < newNumClasses ==> newRepr[c] < dfa.nStates && newPartition[newRepr[c]] == c
 {
   var sigs: seq<Signature> := [];
   for k := 0 to dfa.nStates
@@ -129,7 +137,9 @@ method RefinePartition(dfa: DFA, partition: seq<nat>, alphaSeq: seq<char>)
     sigs := sigs + [ComputeSignature(dfa, partition, k, alphaSeq)];
   }
 
-  newPartition, newNumClasses := AssignClasses(sigs, dfa.nStates);
+  var classFirst: seq<nat>;
+  newPartition, newNumClasses, classFirst := AssignClasses(sigs, dfa.nStates);
+  newRepr := classFirst;
 
   forall i, j | 0 <= i < dfa.nStates && 0 <= j < dfa.nStates && newPartition[i] == newPartition[j]
     ensures partition[i] == partition[j]
@@ -154,7 +164,6 @@ lemma FindInSeq(alphaSeq: seq<char>, c: char)
   ensures exists ci :: 0 <= ci < |alphaSeq| && alphaSeq[ci] == c
 {}
 
-// Build minimized DFA using repr array (one representative per class)
 method {:isolate_assertions} {:verification_time_limit 90} BuildMinDFA(
     dfa: DFA, partition: seq<nat>, numClasses: nat, repr: seq<nat>, alphaSeq: seq<char>)
     returns (minDfa: DFA)
@@ -178,7 +187,6 @@ method {:isolate_assertions} {:verification_time_limit 90} BuildMinDFA(
 {
   var alphabet := set c | c in alphaSeq;
 
-  // Build accepting set
   var accepting: set<nat> := {};
   for c := 0 to numClasses
     invariant forall cc :: cc in accepting ==> cc < numClasses
@@ -188,7 +196,6 @@ method {:isolate_assertions} {:verification_time_limit 90} BuildMinDFA(
     if repr[c] in dfa.accepting { accepting := accepting + {c}; }
   }
 
-  // Build transition map
   var trans: map<(nat, char), nat> := map[];
   for c := 0 to numClasses
     invariant forall p :: p in trans ==> p.0 < numClasses && trans[p] < numClasses
@@ -202,23 +209,16 @@ method {:isolate_assertions} {:verification_time_limit 90} BuildMinDFA(
       invariant forall cii :: 0 <= cii < ci ==>
         (c, alphaSeq[cii]) in trans && trans[(c, alphaSeq[cii])] == partition[dfa.trans[(repr[c], alphaSeq[cii])]]
     {
-      var ch := alphaSeq[ci];
-      trans := trans[(c, ch) := partition[dfa.trans[(repr[c], ch)]]];
+      trans := trans[(c, alphaSeq[ci]) := partition[dfa.trans[(repr[c], alphaSeq[ci])]]];
     }
   }
 
   minDfa := DFA(numClasses, partition[dfa.start], accepting, trans,
     seq(numClasses, _ => Zero));
 
-  // Prove WellFormedDFA components
-  assert minDfa.nStates == numClasses;
   assert minDfa.nStates == |minDfa.exprs|;
   assert minDfa.start < minDfa.nStates;
-  assert forall s :: s in accepting ==> s < numClasses;
-  assert forall st, ch :: 0 <= st < numClasses && ch in alphabet ==>
-    (st, ch) in trans && trans[(st, ch)] < numClasses;
 
-  // Prove transitions commute
   forall s, ch | 0 <= s < dfa.nStates && ch in alphaSeq
     ensures (partition[s], ch) in minDfa.trans && minDfa.trans[(partition[s], ch)] == partition[dfa.trans[(s, ch)]]
   {
@@ -228,7 +228,6 @@ method {:isolate_assertions} {:verification_time_limit 90} BuildMinDFA(
     assert partition[dfa.trans[(r, ch)]] == partition[dfa.trans[(s, ch)]];
   }
 
-  // Prove accepting commutes
   forall s | 0 <= s < dfa.nStates
     ensures s in dfa.accepting <==> partition[s] in minDfa.accepting
   {
@@ -238,8 +237,8 @@ method {:isolate_assertions} {:verification_time_limit 90} BuildMinDFA(
   }
 }
 
-// Main Moore's algorithm loop
-method MooreRefine(dfa: DFA, alphaSeq: seq<char>) returns (partition: seq<nat>, numClasses: nat)
+method MooreRefine(dfa: DFA, alphaSeq: seq<char>)
+    returns (partition: seq<nat>, numClasses: nat, repr: seq<nat>)
   requires WellFormedDFA(dfa, set c | c in alphaSeq)
   requires |alphaSeq| > 0
   decreases *
@@ -250,8 +249,10 @@ method MooreRefine(dfa: DFA, alphaSeq: seq<char>) returns (partition: seq<nat>, 
     (i in dfa.accepting <==> j in dfa.accepting)
   ensures forall i, j {:trigger partition[i], partition[j]} :: 0 <= i < dfa.nStates && 0 <= j < dfa.nStates && partition[i] == partition[j] ==>
     forall c :: c in alphaSeq ==> partition[dfa.trans[(i, c)]] == partition[dfa.trans[(j, c)]]
+  ensures |repr| == numClasses
+  ensures forall c :: 0 <= c < numClasses ==> repr[c] < dfa.nStates && partition[repr[c]] == c
 {
-  partition, numClasses := InitPartition(dfa);
+  partition, numClasses, repr := InitPartition(dfa);
 
   var done := false;
   while !done
@@ -262,14 +263,20 @@ method MooreRefine(dfa: DFA, alphaSeq: seq<char>) returns (partition: seq<nat>, 
       (i in dfa.accepting <==> j in dfa.accepting)
     invariant done ==> forall i, j {:trigger partition[i], partition[j]} :: 0 <= i < dfa.nStates && 0 <= j < dfa.nStates && partition[i] == partition[j] ==>
       forall ci :: 0 <= ci < |alphaSeq| ==> partition[dfa.trans[(i, alphaSeq[ci])]] == partition[dfa.trans[(j, alphaSeq[ci])]]
+    invariant |repr| == numClasses
+    invariant forall c :: 0 <= c < numClasses ==> repr[c] < dfa.nStates && partition[repr[c]] == c
     decreases *
   {
-    var newPartition, newNumClasses := RefinePartition(dfa, partition, alphaSeq);
+    var newPartition: seq<nat>;
+    var newNumClasses: nat;
+    var newRepr: seq<nat>;
+    newPartition, newNumClasses, newRepr := RefinePartition(dfa, partition, alphaSeq);
     if newPartition == partition {
       done := true;
     } else {
       partition := newPartition;
       numClasses := newNumClasses;
+      repr := newRepr;
     }
   }
   forall i, j {:trigger partition[i], partition[j]} | 0 <= i < dfa.nStates && 0 <= j < dfa.nStates && partition[i] == partition[j]
@@ -281,44 +288,6 @@ method MooreRefine(dfa: DFA, alphaSeq: seq<char>) returns (partition: seq<nat>, 
   }
 }
 
-// Build repr array: for each class, pick the smallest state index
-method BuildRepr(partition: seq<nat>, numClasses: nat, n: nat) returns (repr: seq<nat>)
-  requires |partition| == n && n > 0
-  requires numClasses >= 1 && numClasses <= n
-  requires forall i :: 0 <= i < n ==> partition[i] < numClasses
-  ensures |repr| == numClasses
-  ensures forall c :: 0 <= c < numClasses ==> repr[c] < n && partition[repr[c]] == c
-{
-  // First pass: find first state in each class
-  repr := seq(numClasses, _ => n); // sentinel
-  for k := 0 to n
-    invariant |repr| == numClasses
-    invariant forall c :: 0 <= c < numClasses ==> repr[c] <= n
-    invariant forall c :: 0 <= c < numClasses ==> (repr[c] < n ==> partition[repr[c]] == c)
-    invariant forall c :: 0 <= c < numClasses ==>
-      (repr[c] < n <==> exists i :: 0 <= i < k && partition[i] == c)
-  {
-    var c := partition[k];
-    if repr[c] == n {
-      repr := repr[c := k];
-    }
-  }
-  // All classes must be used (since partition maps n states to numClasses classes
-  // and numClasses <= n, and partition values are < numClasses)
-  // We need to show every class 0..numClasses-1 has at least one state.
-  // This isn't necessarily true from our preconditions alone.
-  // Add assume for now - this is safe because BuildRepr is only called
-  // after MooreRefine which produces partitions where all classes are used.
-  forall c | 0 <= c < numClasses
-    ensures repr[c] < n && partition[repr[c]] == c
-  {
-    if repr[c] == n {
-      assume {:axiom} false; // All classes are used by construction
-    }
-  }
-}
-
-// DFARun commutes with partition
 lemma DFARunCommutes(dfa: DFA, minDfa: DFA, partition: seq<nat>, s: seq<char>, state: nat, alphabet: set<char>)
   requires WellFormedDFA(dfa, alphabet) && WellFormedDFA(minDfa, alphabet)
   requires |partition| == dfa.nStates && state < dfa.nStates
@@ -347,7 +316,6 @@ lemma AlphaSeqIsAlphabet(alphaSeq: seq<char>, alphabet: set<char>)
   forall c ensures c in s <==> c in alphabet {}
 }
 
-// Top-level Minimize
 method {:verification_time_limit 120} {:isolate_assertions} Minimize(dfa: DFA, alphabet: set<char>) returns (minDfa: DFA)
   requires WellFormedDFA(dfa, alphabet)
   requires |alphabet| > 0
@@ -356,12 +324,13 @@ method {:verification_time_limit 120} {:isolate_assertions} Minimize(dfa: DFA, a
 {
   var alphaSeq := SetToSeq(alphabet);
   AlphaSeqIsAlphabet(alphaSeq, alphabet);
-  var partition, numClasses := MooreRefine(dfa, alphaSeq);
-  var repr := BuildRepr(partition, numClasses, dfa.nStates);
+  var repr: seq<nat>;
+  var partition: seq<nat>;
+  var numClasses: nat;
+  partition, numClasses, repr := MooreRefine(dfa, alphaSeq);
   minDfa := BuildMinDFA(dfa, partition, numClasses, repr, alphaSeq);
 }
 
-// Main correctness lemma
 lemma MinimizePreservesLanguage(dfa: DFA, minDfa: DFA, partition: seq<nat>, e: Exp<char>, s: seq<char>, alphabet: set<char>)
   requires DFACorrect(dfa, e, alphabet)
   requires WellFormedDFA(minDfa, alphabet)
