@@ -35,11 +35,12 @@ function NormPlus<A(==)>(e1: Exp<A>, e2: Exp<A>): Exp<A>
       case _ => Plus(e1, e2)
 }
 
-/** Smart constructor for Comp: annihilator and left identity. */
+/** Smart constructor for Comp: annihilator, left identity, right identity. */
 function NormComp<A(==)>(e1: Exp<A>, e2: Exp<A>): Exp<A> {
   if e1 == Zero then Zero
   else if e2 == Zero then Zero
   else if e1 == One then e2
+  else if e2 == One then e1
   else Comp(e1, e2)
 }
 
@@ -207,6 +208,63 @@ lemma CompOneLeft<A(!new)>(L: Languages.Lang)
   forall k: nat { CompOneLeftPrefix(k, L); }
 }
 
+/** Helper: unfold Comp delta for Z3. */
+function CompDelta<A>(L1: Languages.Lang, L2: Languages.Lang, a: A): Languages.Lang {
+  Languages.Plus(
+    Languages.Comp(L1.delta(a), L2),
+    Languages.Comp(if L1.eps then Languages.One<A>() else Languages.Zero<A>(), L2.delta(a)))
+}
+
+lemma CompDeltaCorrect<A(!new)>(L1: Languages.Lang, L2: Languages.Lang, a: A)
+  ensures Languages.Comp(L1, L2).delta(a) == CompDelta(L1, L2, a)
+{}
+
+/** Unfold Comp(L, One()).delta(a). */
+lemma CompOneDeltaUnfold<A(!new)>(L: Languages.Lang, a: A)
+  ensures Languages.Comp(L, Languages.One()).delta(a) ==
+    CompDelta(L, Languages.One(), a)
+{
+  CompDeltaCorrect(L, Languages.One(), a);
+}
+
+/** Bisimilar#[k](CompDelta(L, One(), a), L.delta(a)) */
+lemma CompOneRightHelper<A(!new)>(k: nat, L: Languages.Lang, a: A)
+  ensures Bisimilar#[k](CompDelta(L, Languages.One(), a), L.delta(a))
+  decreases k, 1
+{
+  var O := Languages.One<A>();
+  var Z := Languages.Zero<A>();
+  var cond := if L.eps then O else Z;
+  if k != 0 {
+    assert O.delta(a) == Z;
+    CompOneRightPrefix(k, L.delta(a));
+    CompZeroRightPrefix(k, cond);
+    PlusBisimRightZero(k,
+      Languages.Comp(L.delta(a), O),
+      Languages.Comp(cond, O.delta(a)),
+      L.delta(a));
+  }
+}
+
+/** Comp(L, One) ~ L */
+lemma CompOneRightPrefix<A(!new)>(k: nat, L: Languages.Lang)
+  ensures Bisimilar#[k](Languages.Comp(L, Languages.One()), L)
+  decreases k, 0
+{
+  if k != 0 {
+    forall a ensures Bisimilar#[k-1](Languages.Comp(L, Languages.One()).delta(a), L.delta(a)) {
+      CompOneDeltaUnfold(L, a);
+      CompOneRightHelper(k-1, L, a);
+    }
+  }
+}
+
+lemma CompOneRight<A(!new)>(L: Languages.Lang)
+  ensures Bisimilar(Languages.Comp(L, Languages.One()), L)
+{
+  forall k: nat { CompOneRightPrefix(k, L); }
+}
+
 /** Star(Zero) ~ One */
 greatest lemma StarZero<A(!new)>[nat]()
   ensures Bisimilar<A>(Languages.Star(Languages.Zero()), Languages.One())
@@ -330,23 +388,63 @@ lemma NormCompCorrect<A(!new)>(e1: Exp, e2: Exp)
   ensures Bisimilar<A>(Denotational(NormComp(e1, e2)),
                        Languages.Comp(Denotational(e1), Denotational(e2)))
 {
-  var D1 := Denotational<A>(e1);
-  var D2 := Denotational<A>(e2);
   if e1 == Zero {
-    assert D1 == Denotational<A>(Zero);
-    CompZeroLeft<A>(D2);
-    BisimilarityIsSymmetric<A>(Languages.Comp(D1, D2), Languages.Zero());
+    NormCompCorrectZeroLeft(e1, e2);
   } else if e2 == Zero {
-    assert D2 == Denotational<A>(Zero);
-    CompZeroRight<A>(D1);
-    BisimilarityIsSymmetric<A>(Languages.Comp(D1, D2), Languages.Zero());
+    NormCompCorrectZeroRight(e1, e2);
   } else if e1 == One {
-    assert D1 == Denotational<A>(One);
-    CompOneLeft<A>(D2);
-    BisimilarityIsSymmetric<A>(Languages.Comp(D1, D2), D2);
+    NormCompCorrectOneLeft(e1, e2);
+  } else if e2 == One {
+    NormCompCorrectOneRight(e1, e2);
   } else {
     BisimilarityIsReflexive<A>(Denotational(Comp(e1, e2)));
   }
+}
+
+lemma NormCompCorrectZeroLeft<A(!new)>(e1: Exp, e2: Exp)
+  requires e1 == Zero
+  ensures Bisimilar<A>(Denotational(NormComp(e1, e2)),
+                       Languages.Comp(Denotational(e1), Denotational(e2)))
+{
+  CompZeroLeft(Denotational(e2));
+  BisimilarityIsSymmetric(Languages.Comp(Denotational<A>(e1), Denotational(e2)),
+                          Languages.Zero());
+}
+
+lemma NormCompCorrectZeroRight<A(!new)>(e1: Exp, e2: Exp)
+  requires e1 != Zero && e2 == Zero
+  ensures Bisimilar<A>(Denotational(NormComp(e1, e2)),
+                       Languages.Comp(Denotational(e1), Denotational(e2)))
+{
+  CompZeroRight(Denotational(e1));
+  BisimilarityIsSymmetric(Languages.Comp(Denotational<A>(e1), Denotational(e2)),
+                          Languages.Zero());
+}
+
+lemma {:isolate_assertions} NormCompCorrectOneLeft<A(!new)>(e1: Exp, e2: Exp)
+  requires e1 == One && e2 != Zero
+  ensures Bisimilar<A>(Denotational(NormComp(e1, e2)),
+                       Languages.Comp(Denotational(e1), Denotational(e2)))
+{
+  assert NormComp(e1, e2) == e2;
+  assert Denotational<A>(e1) == Languages.One<A>();
+  CompOneLeft(Denotational<A>(e2));
+  assert Bisimilar(Languages.Comp(Languages.One<A>(), Denotational<A>(e2)), Denotational<A>(e2));
+  BisimilarityIsSymmetric(Languages.Comp(Languages.One<A>(), Denotational<A>(e2)),
+                          Denotational<A>(e2));
+}
+
+lemma {:isolate_assertions} NormCompCorrectOneRight<A(!new)>(e1: Exp, e2: Exp)
+  requires e1 != Zero && e1 != One && e2 == One
+  ensures Bisimilar<A>(Denotational(NormComp(e1, e2)),
+                       Languages.Comp(Denotational(e1), Denotational(e2)))
+{
+  assert NormComp(e1, e2) == e1;
+  assert Denotational<A>(e2) == Languages.One<A>();
+  CompOneRight(Denotational<A>(e1));
+  assert Bisimilar(Languages.Comp(Denotational<A>(e1), Languages.One<A>()), Denotational<A>(e1));
+  BisimilarityIsSymmetric(Languages.Comp(Denotational<A>(e1), Languages.One<A>()),
+                          Denotational<A>(e1));
 }
 
 lemma NormStarCorrect<A(!new)>(e: Exp)
