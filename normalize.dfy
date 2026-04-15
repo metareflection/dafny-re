@@ -4,15 +4,18 @@
 
 include "re.dfy"
 
-/** Normalize an expression, applying algebraic simplifications bottom-up. */
-function Normalize<A(==)>(e: Exp<A>): Exp<A> {
+/** Normalize an expression, applying algebraic simplifications bottom-up.
+    The normPlus parameter controls how Plus is normalized:
+    - NormPlus: generic, right-association + head dedup
+    - NormPlusChar: full ACI canonicalization with sorted operands */
+function Normalize<A(==)>(e: Exp<A>, normPlus: (Exp<A>, Exp<A>) -> Exp<A>): Exp<A> {
   match e
   case Zero => Zero
   case One => One
   case Char(a) => Char(a)
-  case Plus(e1, e2) => NormPlus(Normalize(e1), Normalize(e2))
-  case Comp(e1, e2) => NormComp(Normalize(e1), Normalize(e2))
-  case Star(e1) => NormStar(Normalize(e1))
+  case Plus(e1, e2) => normPlus(Normalize(e1, normPlus), Normalize(e2, normPlus))
+  case Comp(e1, e2) => NormComp(Normalize(e1, normPlus), Normalize(e2, normPlus))
+  case Star(e1) => NormStar(Normalize(e1, normPlus))
 }
 
 /** Smart constructor for Plus: identity, idempotence, right-association.
@@ -49,15 +52,15 @@ function NormStar<A(==)>(e: Exp<A>): Exp<A> {
 }
 
 /** Normalized derivative: Delta then Normalize. */
-function NDelta<A(==)>(e: Exp<A>, a: A): Exp<A> {
-  Normalize(Delta(e, a))
+function NDelta<A(==)>(e: Exp<A>, a: A, normPlus: (Exp<A>, Exp<A>) -> Exp<A>): Exp<A> {
+  Normalize(Delta(e, a), normPlus)
 }
 
 /** Fold normalized derivatives over a string. */
-function FoldNDelta<A(==)>(e: Exp<A>, s: seq<A>): Exp<A>
+function FoldNDelta<A(==)>(e: Exp<A>, s: seq<A>, normPlus: (Exp<A>, Exp<A>) -> Exp<A>): Exp<A>
   decreases |s|
 {
-  if |s| == 0 then e else FoldNDelta(NDelta(e, s[0]), s[1..])
+  if |s| == 0 then e else FoldNDelta(NDelta(e, s[0], normPlus), s[1..], normPlus)
 }
 
 /*============================================================================
@@ -228,6 +231,13 @@ greatest lemma StarOne<A(!new)>[nat]()
   Smart constructor correctness.
   ============================================================================*/
 
+/** A normPlus function is correct if it preserves Plus semantics. */
+ghost predicate NormPlusSpec<A(!new)>(normPlus: (Exp<A>, Exp<A>) -> Exp<A>) {
+  forall e1: Exp<A>, e2: Exp<A> ::
+    Bisimilar<A>(Denotational(normPlus(e1, e2)),
+                 Languages.Plus(Denotational(e1), Denotational(e2)))
+}
+
 lemma NormPlusCorrect<A(!new)>(e1: Exp, e2: Exp)
   ensures Bisimilar<A>(Denotational(NormPlus(e1, e2)),
                        Languages.Plus(Denotational(e1), Denotational(e2)))
@@ -305,6 +315,17 @@ lemma NormPlusCorrect<A(!new)>(e1: Exp, e2: Exp)
   }
 }
 
+lemma NormPlusSatisfiesSpec<A(!new)>()
+  ensures NormPlusSpec<A>(NormPlus)
+{
+  forall e1: Exp<A>, e2: Exp<A>
+    ensures Bisimilar<A>(Denotational(NormPlus(e1, e2)),
+                         Languages.Plus(Denotational(e1), Denotational(e2)))
+  {
+    NormPlusCorrect<A>(e1, e2);
+  }
+}
+
 lemma NormCompCorrect<A(!new)>(e1: Exp, e2: Exp)
   ensures Bisimilar<A>(Denotational(NormComp(e1, e2)),
                        Languages.Comp(Denotational(e1), Denotational(e2)))
@@ -350,40 +371,42 @@ lemma NormStarCorrect<A(!new)>(e: Exp)
   Main theorem: Normalize preserves denotational semantics.
   ============================================================================*/
 
-lemma NormalizeCorrect<A(!new)>(e: Exp)
-  ensures Bisimilar<A>(Denotational(Normalize(e)), Denotational(e))
+lemma NormalizeCorrect<A(!new)>(e: Exp, normPlus: (Exp<A>, Exp<A>) -> Exp<A>)
+  requires NormPlusSpec<A>(normPlus)
+  ensures Bisimilar<A>(Denotational(Normalize(e, normPlus)), Denotational(e))
 {
   match e {
     case Zero => BisimilarityIsReflexive<A>(Denotational<A>(Zero));
     case One => BisimilarityIsReflexive<A>(Denotational<A>(One));
     case Char(a) => BisimilarityIsReflexive<A>(Denotational(Char(a)));
     case Plus(e1, e2) =>
-      NormalizeCorrect(e1);
-      NormalizeCorrect(e2);
-      PlusCongruence(Denotational(Normalize(e1)), Denotational(e1),
-                     Denotational(Normalize(e2)), Denotational(e2));
-      NormPlusCorrect<A>(Normalize(e1), Normalize(e2));
+      NormalizeCorrect(e1, normPlus);
+      NormalizeCorrect(e2, normPlus);
+      PlusCongruence(Denotational(Normalize(e1, normPlus)), Denotational(e1),
+                     Denotational(Normalize(e2, normPlus)), Denotational(e2));
+      assert Bisimilar<A>(Denotational(normPlus(Normalize(e1, normPlus), Normalize(e2, normPlus))),
+                          Languages.Plus(Denotational(Normalize(e1, normPlus)), Denotational(Normalize(e2, normPlus))));
       BisimilarityIsTransitive(
-        Denotational(Normalize(Plus(e1, e2))),
-        Languages.Plus(Denotational(Normalize(e1)), Denotational(Normalize(e2))),
+        Denotational(Normalize(Plus(e1, e2), normPlus)),
+        Languages.Plus(Denotational(Normalize(e1, normPlus)), Denotational(Normalize(e2, normPlus))),
         Languages.Plus(Denotational(e1), Denotational(e2)));
     case Comp(e1, e2) =>
-      NormalizeCorrect(e1);
-      NormalizeCorrect(e2);
-      CompCongruence(Denotational(Normalize(e1)), Denotational(e1),
-                     Denotational(Normalize(e2)), Denotational(e2));
-      NormCompCorrect<A>(Normalize(e1), Normalize(e2));
+      NormalizeCorrect(e1, normPlus);
+      NormalizeCorrect(e2, normPlus);
+      CompCongruence(Denotational(Normalize(e1, normPlus)), Denotational(e1),
+                     Denotational(Normalize(e2, normPlus)), Denotational(e2));
+      NormCompCorrect<A>(Normalize(e1, normPlus), Normalize(e2, normPlus));
       BisimilarityIsTransitive(
-        Denotational(Normalize(Comp(e1, e2))),
-        Languages.Comp(Denotational(Normalize(e1)), Denotational(Normalize(e2))),
+        Denotational(Normalize(Comp(e1, e2), normPlus)),
+        Languages.Comp(Denotational(Normalize(e1, normPlus)), Denotational(Normalize(e2, normPlus))),
         Languages.Comp(Denotational(e1), Denotational(e2)));
     case Star(e1) =>
-      NormalizeCorrect(e1);
-      StarCongruence(Denotational(Normalize(e1)), Denotational(e1));
-      NormStarCorrect<A>(Normalize(e1));
+      NormalizeCorrect(e1, normPlus);
+      StarCongruence(Denotational(Normalize(e1, normPlus)), Denotational(e1));
+      NormStarCorrect<A>(Normalize(e1, normPlus));
       BisimilarityIsTransitive(
-        Denotational(Normalize(Star(e1))),
-        Languages.Star(Denotational(Normalize(e1))),
+        Denotational(Normalize(Star(e1), normPlus)),
+        Languages.Star(Denotational(Normalize(e1, normPlus))),
         Languages.Star(Denotational(e1)));
   }
 }
@@ -447,27 +470,6 @@ function FlattenInto(e: Exp<char>, acc: Exp<char>): Exp<char>
 /** Fully canonicalizing Plus for Exp<char>. */
 function NormPlusChar(e1: Exp<char>, e2: Exp<char>): Exp<char> {
   FlattenInto(e1, FlattenInto(e2, Zero))
-}
-
-/** Normalize with full ACI canonicalization (char-specialized). */
-function NormalizeChar(e: Exp<char>): Exp<char> {
-  match e
-  case Zero => Zero
-  case One => One
-  case Char(a) => Char(a)
-  case Plus(e1, e2) => NormPlusChar(NormalizeChar(e1), NormalizeChar(e2))
-  case Comp(e1, e2) => NormComp(NormalizeChar(e1), NormalizeChar(e2))
-  case Star(e1) => NormStar(NormalizeChar(e1))
-}
-
-function NDeltaChar(e: Exp<char>, a: char): Exp<char> {
-  NormalizeChar(Delta(e, a))
-}
-
-function FoldNDeltaChar(e: Exp<char>, s: seq<char>): Exp<char>
-  decreases |s|
-{
-  if |s| == 0 then e else FoldNDeltaChar(NDeltaChar(e, s[0]), s[1..])
 }
 
 /*-- Correctness of SortedInsert. --*/
@@ -598,7 +600,7 @@ lemma FlattenIntoCorrect(e: Exp<char>, acc: Exp<char>)
   }
 }
 
-/*-- Correctness of NormPlusChar. --*/
+/*-- NormPlusChar satisfies NormPlusSpec. --*/
 
 lemma NormPlusCharCorrect(e1: Exp<char>, e2: Exp<char>)
   ensures Bisimilar<char>(Denotational(NormPlusChar(e1, e2)),
@@ -624,42 +626,73 @@ lemma NormPlusCharCorrect(e1: Exp<char>, e2: Exp<char>)
     Languages.Plus(D1, D2));
 }
 
-/*-- Main theorem for NormalizeChar. --*/
+lemma NormPlusCharSatisfiesSpec()
+  ensures NormPlusSpec<char>(NormPlusChar)
+{
+  forall e1: Exp<char>, e2: Exp<char>
+    ensures Bisimilar<char>(Denotational(NormPlusChar(e1, e2)),
+                            Languages.Plus(Denotational(e1), Denotational(e2)))
+  {
+    NormPlusCharCorrect(e1, e2);
+  }
+}
 
-lemma NormalizeCharCorrect(e: Exp<char>)
-  ensures Bisimilar<char>(Denotational(NormalizeChar(e)), Denotational(e))
+/*============================================================================
+  Char-specialized wrappers: fix normPlus = NormPlusChar.
+  ============================================================================*/
+
+function NormalizeC(e: Exp<char>): Exp<char> {
+  match e
+  case Zero => Zero
+  case One => One
+  case Char(a) => Char(a)
+  case Plus(e1, e2) => NormPlusChar(NormalizeC(e1), NormalizeC(e2))
+  case Comp(e1, e2) => NormComp(NormalizeC(e1), NormalizeC(e2))
+  case Star(e1) => NormStar(NormalizeC(e1))
+}
+
+function NDeltaC(e: Exp<char>, a: char): Exp<char> {
+  NormalizeC(Delta(e, a))
+}
+
+function FoldNDeltaC(e: Exp<char>, s: seq<char>): Exp<char>
+  decreases |s|
+{
+  if |s| == 0 then e else FoldNDeltaC(NDeltaC(e, s[0]), s[1..])
+}
+
+lemma NormalizeCIsNormalize(e: Exp<char>)
+  ensures NormalizeC(e) == Normalize(e, NormPlusChar)
 {
   match e {
-    case Zero => BisimilarityIsReflexive<char>(Denotational<char>(Zero));
-    case One => BisimilarityIsReflexive<char>(Denotational<char>(One));
-    case Char(a) => BisimilarityIsReflexive<char>(Denotational(Char(a)));
+    case Zero =>
+    case One =>
+    case Char(_) =>
     case Plus(e1, e2) =>
-      NormalizeCharCorrect(e1);
-      NormalizeCharCorrect(e2);
-      PlusCongruence(Denotational(NormalizeChar(e1)), Denotational(e1),
-                     Denotational(NormalizeChar(e2)), Denotational(e2));
-      NormPlusCharCorrect(NormalizeChar(e1), NormalizeChar(e2));
-      BisimilarityIsTransitive(
-        Denotational(NormalizeChar(Plus(e1, e2))),
-        Languages.Plus(Denotational(NormalizeChar(e1)), Denotational(NormalizeChar(e2))),
-        Languages.Plus(Denotational(e1), Denotational(e2)));
+      NormalizeCIsNormalize(e1);
+      NormalizeCIsNormalize(e2);
     case Comp(e1, e2) =>
-      NormalizeCharCorrect(e1);
-      NormalizeCharCorrect(e2);
-      CompCongruence(Denotational(NormalizeChar(e1)), Denotational(e1),
-                     Denotational(NormalizeChar(e2)), Denotational(e2));
-      NormCompCorrect<char>(NormalizeChar(e1), NormalizeChar(e2));
-      BisimilarityIsTransitive(
-        Denotational(NormalizeChar(Comp(e1, e2))),
-        Languages.Comp(Denotational(NormalizeChar(e1)), Denotational(NormalizeChar(e2))),
-        Languages.Comp(Denotational(e1), Denotational(e2)));
+      NormalizeCIsNormalize(e1);
+      NormalizeCIsNormalize(e2);
     case Star(e1) =>
-      NormalizeCharCorrect(e1);
-      StarCongruence(Denotational(NormalizeChar(e1)), Denotational(e1));
-      NormStarCorrect<char>(NormalizeChar(e1));
-      BisimilarityIsTransitive(
-        Denotational(NormalizeChar(Star(e1))),
-        Languages.Star(Denotational(NormalizeChar(e1))),
-        Languages.Star(Denotational(e1)));
+      NormalizeCIsNormalize(e1);
   }
+}
+
+lemma FoldNDeltaCIsFoldNDelta(e: Exp<char>, s: seq<char>)
+  ensures FoldNDeltaC(e, s) == FoldNDelta(e, s, NormPlusChar)
+  decreases |s|
+{
+  if |s| != 0 {
+    NormalizeCIsNormalize(Delta(e, s[0]));
+    FoldNDeltaCIsFoldNDelta(NDeltaC(e, s[0]), s[1..]);
+  }
+}
+
+lemma NormalizeCCorrect(e: Exp<char>)
+  ensures Bisimilar<char>(Denotational(NormalizeC(e)), Denotational(e))
+{
+  NormalizeCIsNormalize(e);
+  NormPlusCharSatisfiesSpec();
+  NormalizeCorrect<char>(e, NormPlusChar);
 }
