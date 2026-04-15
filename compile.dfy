@@ -25,9 +25,9 @@ ghost predicate WellFormedDFA(dfa: DFA, alphabet: set<char>) {
 /** The DFA faithfully represents the derivative structure. */
 ghost predicate DFACorrect(dfa: DFA, e: Exp<char>, alphabet: set<char>) {
   && WellFormedDFA(dfa, alphabet)
-  && dfa.exprs[dfa.start] == Normalize(e)
+  && dfa.exprs[dfa.start] == NormalizeC(e)
   && (forall st, c :: 0 <= st < dfa.nStates && c in alphabet ==>
-       dfa.exprs[dfa.trans[(st, c)]] == NDelta(dfa.exprs[st], c))
+       dfa.exprs[dfa.trans[(st, c)]] == NDeltaC(dfa.exprs[st], c))
   && (forall st :: 0 <= st < dfa.nStates ==>
        (st in dfa.accepting <==> Eps(dfa.exprs[st])))
 }
@@ -42,10 +42,10 @@ ghost predicate DFACorrectViaMap(
   && (forall i :: 0 <= i < |exprs| ==> exprs[i] in stateOf && stateOf[exprs[i]] == i)
   && (forall expr :: expr in stateOf ==> stateOf[expr] < |exprs|)
   && (forall expr :: expr in stateOf ==> exprs[stateOf[expr]] == expr)
-  && exprs[0] == Normalize(e)
+  && exprs[0] == NormalizeC(e)
   && (forall i, c :: 0 <= i < |exprs| && c in alphabet ==>
-       (i, c) in trans && NDelta(exprs[i], c) in stateOf &&
-       trans[(i, c)] == stateOf[NDelta(exprs[i], c)])
+       (i, c) in trans && NDeltaC(exprs[i], c) in stateOf &&
+       trans[(i, c)] == stateOf[NDeltaC(exprs[i], c)])
   && (forall st :: 0 <= st < |exprs| ==> (st in accepting <==> Eps(exprs[st])))
   && (forall st :: st in accepting ==> st < |exprs|)
   && (forall st, c :: 0 <= st < |exprs| && c in alphabet ==>
@@ -62,11 +62,11 @@ lemma DFACorrectFromMap(
 {
   var dfa := DFA(|exprs|, 0, accepting, trans, exprs);
   forall st, c | 0 <= st < dfa.nStates && c in alphabet
-    ensures dfa.exprs[dfa.trans[(st, c)]] == NDelta(dfa.exprs[st], c)
+    ensures dfa.exprs[dfa.trans[(st, c)]] == NDeltaC(dfa.exprs[st], c)
   {
     var tid := trans[(st, c)];
-    assert tid == stateOf[NDelta(exprs[st], c)];
-    assert exprs[tid] == NDelta(exprs[st], c);
+    assert tid == stateOf[NDeltaC(exprs[st], c)];
+    assert exprs[tid] == NDeltaC(exprs[st], c);
   }
 }
 
@@ -95,12 +95,12 @@ lemma DFARunCorrect(dfa: DFA, e: Exp<char>, s: seq<char>,
   requires DFACorrect(dfa, e, alphabet)
   requires state < dfa.nStates
   requires forall i :: 0 <= i < |s| ==> s[i] in alphabet
-  ensures DFARun(dfa, s, state, alphabet) == Eps(FoldNDelta(dfa.exprs[state], s))
+  ensures DFARun(dfa, s, state, alphabet) == Eps(FoldNDeltaC(dfa.exprs[state], s))
   decreases |s|
 {
   if |s| != 0 {
     var next := dfa.trans[(state, s[0])];
-    assert dfa.exprs[next] == NDelta(dfa.exprs[state], s[0]);
+    assert dfa.exprs[next] == NDeltaC(dfa.exprs[state], s[0]);
     DFARunCorrect(dfa, e, s[1..], next, alphabet);
   }
 }
@@ -112,12 +112,15 @@ lemma DFAAcceptsCorrect(dfa: DFA, e: Exp<char>, s: seq<char>,
   ensures DFAAccepts(dfa, s, alphabet) == Matches(e, s)
 {
   DFARunCorrect(dfa, e, s, dfa.start, alphabet);
-  assert dfa.exprs[dfa.start] == Normalize(e);
-  FoldNDeltaCorrect(e, s);
+  assert dfa.exprs[dfa.start] == NormalizeC(e);
+  NormalizeCIsNormalize(e);
+  NormPlusCharSatisfiesSpec();
+  FoldNDeltaCIsFoldNDelta(NormalizeC(e), s);
+  FoldNDeltaCorrect(e, s, NormPlusChar);
 }
 
 /** Imperative DFA matcher. */
-method DFAMatch(dfa: DFA, e: Exp<char>, s: seq<char>, alphabet: set<char>)
+method {:isolate_assertions} DFAMatch(dfa: DFA, e: Exp<char>, s: seq<char>, alphabet: set<char>)
     returns (accepts: bool)
   requires DFACorrect(dfa, e, alphabet)
   requires forall i :: 0 <= i < |s| ==> s[i] in alphabet
@@ -165,7 +168,7 @@ method Compile(e: Exp<char>, alphabet: set<char>) returns (dfa: DFA)
   ensures DFACorrect(dfa, e, alphabet)
 {
   var alphaSeq := SetToSeq(alphabet);
-  var startExpr := Normalize(e);
+  var startExpr := NormalizeC(e);
 
   var states: seq<Exp<char>> := [startExpr];
   var stateOf: map<Exp<char>, nat> := map[startExpr := 0];
@@ -184,8 +187,8 @@ method Compile(e: Exp<char>, alphabet: set<char>) returns (dfa: DFA)
     invariant forall p :: p in trans ==> p.0 < |states| && trans[p] < |states|
     // Transition correctness: expanded states have all transitions, each correct
     invariant forall i, c :: 0 <= i < |states| && expanded[i] && c in alphabet ==>
-      (i, c) in trans && NDelta(states[i], c) in stateOf &&
-      trans[(i, c)] == stateOf[NDelta(states[i], c)]
+      (i, c) in trans && NDeltaC(states[i], c) in stateOf &&
+      trans[(i, c)] == stateOf[NDeltaC(states[i], c)]
     invariant done ==> forall i :: 0 <= i < |expanded| ==> expanded[i]
     decreases *
   {
@@ -223,15 +226,15 @@ method Compile(e: Exp<char>, alphabet: set<char>) returns (dfa: DFA)
         invariant forall i :: old_len <= i < |states| ==> !expanded[i]
         // Previously expanded states still have correct transitions
         invariant forall i, c :: 0 <= i < |states| && expanded[i] && c in alphabet ==>
-          (i, c) in trans && NDelta(states[i], c) in stateOf &&
-          trans[(i, c)] == stateOf[NDelta(states[i], c)]
+          (i, c) in trans && NDeltaC(states[i], c) in stateOf &&
+          trans[(i, c)] == stateOf[NDeltaC(states[i], c)]
         // Current state sid has transitions for chars processed so far
         invariant forall j :: 0 <= j < ci ==>
-          (sid, chars[j]) in trans && NDelta(expr, chars[j]) in stateOf &&
-          trans[(sid, chars[j])] == stateOf[NDelta(expr, chars[j])]
+          (sid, chars[j]) in trans && NDeltaC(expr, chars[j]) in stateOf &&
+          trans[(sid, chars[j])] == stateOf[NDeltaC(expr, chars[j])]
       {
         var c := chars[ci];
-        var next := NDelta(expr, c);
+        var next := NDeltaC(expr, c);
 
         ghost var prev_states := states;
         ghost var prev_trans := trans;
@@ -247,8 +250,8 @@ method Compile(e: Exp<char>, alphabet: set<char>) returns (dfa: DFA)
       }
 
       assert forall c :: c in alphabet ==>
-        (sid, c) in trans && NDelta(expr, c) in stateOf &&
-        trans[(sid, c)] == stateOf[NDelta(expr, c)];
+        (sid, c) in trans && NDeltaC(expr, c) in stateOf &&
+        trans[(sid, c)] == stateOf[NDeltaC(expr, c)];
       expanded := expanded[sid := true];
     }
   }

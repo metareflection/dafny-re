@@ -39,7 +39,7 @@ ghost function StateExpr(state: nat): Exp<char>
 // Verified: transitions match normalized derivatives
 lemma TransCorrect(state: nat, c: char)
   requires state < 2 && (c == 'a' || c == 'b')
-  ensures NDelta(StateExpr(state), c) == StateExpr(Trans(state, c))
+  ensures NDelta(StateExpr(state), c, NormPlus) == StateExpr(Trans(state, c))
 {}
 
 lemma AcceptCorrect(state: nat)
@@ -47,13 +47,13 @@ lemma AcceptCorrect(state: nat)
   ensures Accept(state) == Eps(StateExpr(state))
 {}
 
-lemma NormStart() ensures Normalize(TheExpr()) == S0() {}
+lemma NormStart() ensures Normalize(TheExpr(), NormPlus) == S0() {}
 
 // Key lemma: FoldTrans tracks FoldNDelta
 lemma FoldTransCorrect(state: nat, s: seq<char>)
   requires state < 2
   requires forall i :: 0 <= i < |s| ==> s[i] == 'a' || s[i] == 'b'
-  ensures StateExpr(FoldTrans(state, s)) == FoldNDelta(StateExpr(state), s)
+  ensures StateExpr(FoldTrans(state, s)) == FoldNDelta(StateExpr(state), s, NormPlus)
   decreases |s|
 {
   if |s| != 0 {
@@ -62,10 +62,10 @@ lemma FoldTransCorrect(state: nat, s: seq<char>)
   }
 }
 
-// Accept(FoldTrans(0, s)) == Eps(FoldNDelta(Normalize(TheExpr()), s))
+// Accept(FoldTrans(0, s)) == Eps(FoldNDelta(Normalize(TheExpr(), NormPlus), s, NormPlus))
 lemma CorrectnessNDelta(s: seq<char>)
   requires forall i :: 0 <= i < |s| ==> s[i] == 'a' || s[i] == 'b'
-  ensures Accept(FoldTrans(0, s)) == Eps(FoldNDelta(Normalize(TheExpr()), s))
+  ensures Accept(FoldTrans(0, s)) == Eps(FoldNDelta(Normalize(TheExpr(), NormPlus), s, NormPlus))
 {
   NormStart();
   FoldTransCorrect(0, s);
@@ -108,7 +108,7 @@ method RunDFA(s: seq<char>) returns (state: nat)
 // The specialized matcher
 method MatchSpecialized(s: seq<char>) returns (accepts: bool)
   requires forall i :: 0 <= i < |s| ==> s[i] == 'a' || s[i] == 'b'
-  ensures accepts == Eps(FoldNDelta(Normalize(TheExpr()), s))
+  ensures accepts == Eps(FoldNDelta(Normalize(TheExpr(), NormPlus), s, NormPlus))
 {
   var state := RunDFA(s);
   accepts := state == 1;

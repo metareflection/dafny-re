@@ -1,5 +1,5 @@
 // Codegen: emit a self-certifying Dafny matcher from a regex.
-// The output file verifies against Eps(FoldNDelta(Normalize(e), s)).
+// The output file verifies against Eps(FoldNDelta(Normalize(e, NormPlus), s, NormPlus)).
 
 include "compile.dfy"
 
@@ -9,7 +9,7 @@ method Codegen(e: Exp<char>, alphabet: set<char>) returns (code: string)
 {
   // BFS to discover states and transitions
   var alphaSeq := SetToSeq(alphabet);
-  var startExpr := Normalize(e);
+  var startExpr := Normalize(e, NormPlus);
   var states: seq<Exp<char>> := [startExpr];
   var stateOf: map<Exp<char>, nat> := map[startExpr := 0];
   var transitions: seq<(nat, char, nat)> := [];
@@ -37,7 +37,7 @@ method Codegen(e: Exp<char>, alphabet: set<char>) returns (code: string)
       invariant forall f :: f in frontier ==> 0 <= f < |states|
     {
       var c := alphaSeq[ci];
-      var next := NDelta(expr, c);
+      var next := NDelta(expr, c, NormPlus);
       if next !in stateOf {
         stateOf := stateOf[next := |states|];
         states := states + [next];
@@ -122,7 +122,7 @@ method Codegen(e: Exp<char>, alphabet: set<char>) returns (code: string)
   // TransCorrect lemma
   code := code + "\nlemma TransCorrect(state: nat, c: char)\n";
   code := code + "  requires state < " + n + " && (" + alphaParam + ")\n";
-  code := code + "  ensures NDelta(StateExpr(state), c) == StateExpr(Trans(state, c))\n";
+  code := code + "  ensures NDelta(StateExpr(state), c, NormPlus) == StateExpr(Trans(state, c))\n";
   code := code + "{}\n";
 
   // AcceptCorrect lemma
@@ -132,13 +132,13 @@ method Codegen(e: Exp<char>, alphabet: set<char>) returns (code: string)
   code := code + "{}\n";
 
   // NormStart lemma
-  code := code + "\nlemma NormStart() ensures Normalize(TheExpr()) == S0() {}\n";
+  code := code + "\nlemma NormStart() ensures Normalize(TheExpr(), NormPlus) == S0() {}\n";
 
   // FoldTransCorrect lemma
   code := code + "\nlemma FoldTransCorrect(state: nat, s: seq<char>)\n";
   code := code + "  requires state < " + n + "\n";
   code := code + "  requires forall i :: 0 <= i < |s| ==> " + alphaForall + "\n";
-  code := code + "  ensures StateExpr(FoldTrans(state, s)) == FoldNDelta(StateExpr(state), s)\n";
+  code := code + "  ensures StateExpr(FoldTrans(state, s)) == FoldNDelta(StateExpr(state), s, NormPlus)\n";
   code := code + "  decreases |s|\n";
   code := code + "{\n";
   code := code + "  if |s| != 0 {\n";
@@ -150,7 +150,7 @@ method Codegen(e: Exp<char>, alphabet: set<char>) returns (code: string)
   // CorrectnessNDelta lemma
   code := code + "\nlemma CorrectnessNDelta(s: seq<char>)\n";
   code := code + "  requires forall i :: 0 <= i < |s| ==> " + alphaForall + "\n";
-  code := code + "  ensures Accept(FoldTrans(0, s)) == Eps(FoldNDelta(Normalize(TheExpr()), s))\n";
+  code := code + "  ensures Accept(FoldTrans(0, s)) == Eps(FoldNDelta(Normalize(TheExpr(), NormPlus), s, NormPlus))\n";
   code := code + "{\n";
   code := code + "  NormStart();\n";
   code := code + "  FoldTransCorrect(0, s);\n";
@@ -177,7 +177,7 @@ method Codegen(e: Exp<char>, alphabet: set<char>) returns (code: string)
   // MatchSpecialized method
   code := code + "\nmethod MatchSpecialized(s: seq<char>) returns (accepts: bool)\n";
   code := code + "  requires forall i :: 0 <= i < |s| ==> " + alphaForall + "\n";
-  code := code + "  ensures accepts == Eps(FoldNDelta(Normalize(TheExpr()), s))\n";
+  code := code + "  ensures accepts == Eps(FoldNDelta(Normalize(TheExpr(), NormPlus), s, NormPlus))\n";
   code := code + "{\n";
   code := code + "  var state := RunDFA(s);\n";
   code := code + "  accepts := Accept(state);\n";
