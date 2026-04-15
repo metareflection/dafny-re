@@ -15,12 +15,21 @@ function Normalize<A(==)>(e: Exp<A>): Exp<A> {
   case Star(e1) => NormStar(Normalize(e1))
 }
 
-/** Smart constructor for Plus: identity and idempotence. */
-function NormPlus<A(==)>(e1: Exp<A>, e2: Exp<A>): Exp<A> {
+/** Smart constructor for Plus: identity, idempotence, right-association.
+    Normalizes Plus(Plus(a, b), c) to Plus(a, Plus(b, c)) and deduplicates. */
+function NormPlus<A(==)>(e1: Exp<A>, e2: Exp<A>): Exp<A>
+  decreases e1, 1
+{
   if e1 == Zero then e2
   else if e2 == Zero then e1
   else if e1 == e2 then e1
-  else Plus(e1, e2)
+  else match e1
+    case Plus(a, b) => NormPlus(a, NormPlus(b, e2))  // right-associate
+    case _ =>
+      // e1 is not Plus; check if e1 is the head of e2
+      match e2
+      case Plus(c, d) => if e1 == c then e2 else Plus(e1, e2)
+      case _ => Plus(e1, e2)
 }
 
 /** Smart constructor for Comp: annihilator and left identity. */
@@ -222,21 +231,77 @@ greatest lemma StarOne<A(!new)>[nat]()
 lemma NormPlusCorrect<A(!new)>(e1: Exp, e2: Exp)
   ensures Bisimilar<A>(Denotational(NormPlus(e1, e2)),
                        Languages.Plus(Denotational(e1), Denotational(e2)))
+  decreases e1, 1
 {
+  var D1 := Denotational<A>(e1);
+  var D2 := Denotational<A>(e2);
   if e1 == Zero {
-    PlusZeroLeft(Denotational(e2));
-    BisimilarityIsSymmetric(Languages.Plus(Denotational<A>(e1), Denotational(e2)),
-                            Denotational(e2));
+    PlusZeroLeft<A>(D2);
+    BisimilarityIsSymmetric(Languages.Plus(D1, D2), D2);
   } else if e2 == Zero {
-    PlusZeroRight(Denotational(e1));
-    BisimilarityIsSymmetric(Languages.Plus(Denotational<A>(e1), Denotational(e2)),
-                            Denotational(e1));
+    PlusZeroRight<A>(D1);
+    BisimilarityIsSymmetric(Languages.Plus(D1, D2), D1);
   } else if e1 == e2 {
-    PlusIdem(Denotational(e1));
-    BisimilarityIsSymmetric(Languages.Plus(Denotational<A>(e1), Denotational(e1)),
-                            Denotational(e1));
+    PlusIdem<A>(D1);
+    BisimilarityIsSymmetric(Languages.Plus(D1, D1), D1);
   } else {
-    BisimilarityIsReflexive(Denotational(Plus(e1, e2)));
+    match e1 {
+      case Plus(a, b) =>
+        NormPlusCorrect<A>(b, e2);
+        NormPlusCorrect<A>(a, NormPlus(b, e2));
+        var Da := Denotational<A>(a);
+        var Db := Denotational<A>(b);
+        // Step 1: D(NormPlus(a, NormPlus(b, e2))) ~ Plus(Da, D(NormPlus(b, e2)))
+        // Step 2: D(NormPlus(b, e2)) ~ Plus(Db, D2)
+        // So: ~ Plus(Da, Plus(Db, D2))
+        BisimilarityIsReflexive<A>(Da);
+        PlusCongruence<A>(Da, Da,
+                     Denotational(NormPlus(b, e2)),
+                     Languages.Plus(Db, D2));
+        BisimilarityIsTransitive(
+          Denotational(NormPlus(a, NormPlus(b, e2))),
+          Languages.Plus(Da, Denotational(NormPlus(b, e2))),
+          Languages.Plus(Da, Languages.Plus(Db, D2)));
+        // Step 3: Plus(Da, Plus(Db, D2)) ~ Plus(Plus(Da, Db), D2)
+        PlusAssoc<A>(Da, Db, D2);
+        BisimilarityIsSymmetric(
+          Languages.Plus(Languages.Plus(Da, Db), D2),
+          Languages.Plus(Da, Languages.Plus(Db, D2)));
+        BisimilarityIsTransitive(
+          Denotational(NormPlus(a, NormPlus(b, e2))),
+          Languages.Plus(Da, Languages.Plus(Db, D2)),
+          Languages.Plus(Languages.Plus(Da, Db), D2));
+      case _ =>
+        match e2 {
+          case Plus(c, d) =>
+            if e1 == c {
+              var Dc := Denotational<A>(c);
+              var Dd := Denotational<A>(d);
+              assert D1 == Dc;
+              // Need: D(e2) ~ Plus(D1, D(e2))
+              // D(e2) = Plus(Dc, Dd), Plus(D1, D(e2)) = Plus(Dc, Plus(Dc, Dd))
+              // Plus(Dc, Plus(Dc, Dd)) ~ Plus(Plus(Dc, Dc), Dd) ~ Plus(Dc, Dd)
+              PlusAssoc<A>(Dc, Dc, Dd);
+              PlusIdem<A>(Dc);
+              BisimilarityIsReflexive<A>(Dd);
+              PlusCongruence<A>(Languages.Plus(Dc, Dc), Dc, Dd, Dd);
+              BisimilarityIsSymmetric(
+                Languages.Plus(Languages.Plus(Dc, Dc), Dd),
+                Languages.Plus(Dc, Languages.Plus(Dc, Dd)));
+              BisimilarityIsTransitive(
+                Languages.Plus(Dc, Languages.Plus(Dc, Dd)),
+                Languages.Plus(Languages.Plus(Dc, Dc), Dd),
+                Languages.Plus(Dc, Dd));
+              BisimilarityIsSymmetric(
+                Languages.Plus(Dc, Languages.Plus(Dc, Dd)),
+                Languages.Plus(Dc, Dd));
+            } else {
+              BisimilarityIsReflexive<A>(Denotational(Plus(e1, e2)));
+            }
+          case _ =>
+            BisimilarityIsReflexive<A>(Denotational(Plus(e1, e2)));
+        }
+    }
   }
 }
 
