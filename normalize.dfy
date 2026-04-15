@@ -112,6 +112,17 @@ greatest lemma PlusIdem<A(!new)>[nat](L: Languages.Lang)
   ensures Bisimilar(Languages.Plus(L, L), L)
 {}
 
+/** Plus(L1, L2) ~ Plus(L2, L1) */
+greatest lemma PlusComm<A(!new)>[nat](L1: Languages.Lang, L2: Languages.Lang)
+  ensures Bisimilar(Languages.Plus(L1, L2), Languages.Plus(L2, L1))
+{}
+
+/** Plus(Plus(L1, L2), L3) ~ Plus(L1, Plus(L2, L3)) */
+greatest lemma PlusAssoc<A(!new)>[nat](L1: Languages.Lang, L2: Languages.Lang, L3: Languages.Lang)
+  ensures Bisimilar(Languages.Plus(Languages.Plus(L1, L2), L3),
+                    Languages.Plus(L1, Languages.Plus(L2, L3)))
+{}
+
 /** Comp(Zero, L) ~ Zero */
 lemma CompZeroLeftPrefix<A(!new)>(k: nat, L: Languages.Lang)
   ensures Bisimilar#[k](Languages.Comp(Languages.Zero(), L), Languages.Zero<A>())
@@ -233,20 +244,22 @@ lemma NormCompCorrect<A(!new)>(e1: Exp, e2: Exp)
   ensures Bisimilar<A>(Denotational(NormComp(e1, e2)),
                        Languages.Comp(Denotational(e1), Denotational(e2)))
 {
+  var D1 := Denotational<A>(e1);
+  var D2 := Denotational<A>(e2);
   if e1 == Zero {
-    CompZeroLeft(Denotational(e2));
-    BisimilarityIsSymmetric(Languages.Comp(Denotational<A>(e1), Denotational(e2)),
-                            Languages.Zero());
+    assert D1 == Denotational<A>(Zero);
+    CompZeroLeft<A>(D2);
+    BisimilarityIsSymmetric<A>(Languages.Comp(D1, D2), Languages.Zero());
   } else if e2 == Zero {
-    CompZeroRight(Denotational(e1));
-    BisimilarityIsSymmetric(Languages.Comp(Denotational<A>(e1), Denotational(e2)),
-                            Languages.Zero());
+    assert D2 == Denotational<A>(Zero);
+    CompZeroRight<A>(D1);
+    BisimilarityIsSymmetric<A>(Languages.Comp(D1, D2), Languages.Zero());
   } else if e1 == One {
-    CompOneLeft(Denotational(e2));
-    BisimilarityIsSymmetric(Languages.Comp(Denotational<A>(e1), Denotational(e2)),
-                            Denotational(e2));
+    assert D1 == Denotational<A>(One);
+    CompOneLeft<A>(D2);
+    BisimilarityIsSymmetric<A>(Languages.Comp(D1, D2), D2);
   } else {
-    BisimilarityIsReflexive(Denotational(Comp(e1, e2)));
+    BisimilarityIsReflexive<A>(Denotational(Comp(e1, e2)));
   }
 }
 
