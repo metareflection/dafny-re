@@ -18,12 +18,17 @@ finite automata:
 3. **Bisimilarity proof** — the two semantics coincide
 4. **Verified interpreter** — fold `Delta` over input, check `Eps`;
    proven correct against the denotational spec
-5. **Expression normalization** — algebraic simplifications, proven
-   to preserve semantics
+5. **Expression normalization** — algebraic simplifications (identity,
+   annihilator, idempotence, full ACI of Plus, right identity of Comp),
+   proven to preserve semantics
 6. **Verified DFA compiler** — BFS over normalized derivatives produces a
    transition table, proven to accept exactly `Matches(e, s)`
-7. **Self-certifying codegen** — emit a specialized Dafny matcher with
+7. **Verified DFA minimization** — Moore's partition-refinement algorithm,
+   proven to preserve the accepted language
+8. **Self-certifying codegen** — emit a specialized Dafny matcher with
    no maps or expression types at runtime, carrying its own correctness proof
+9. **Regex parser** — recursive descent parser from standard regex syntax
+   to `Exp<char>`, with desugaring of `+`, `?`, character classes, etc.
 
 No backtracking at any stage.
 
@@ -34,9 +39,12 @@ No backtracking at any stage.
 | `re.dfy` | Core theory: `Exp`, `Lang`, `Denotational`, `Operational`, bisimilarity, homomorphism proofs |
 | `walk.dfy` | `Walk`, `FoldDelta`, `Matches` spec, `MatchesEquivFoldDelta` |
 | `match.dfy` | `Match` — verified on-the-fly derivative interpreter |
-| `normalize.dfy` | `Normalize` with algebraic laws + `NormalizeCorrect` |
+| `normalize.dfy` | `Normalize` with algebraic laws (incl. full ACI of Plus, right identity of Comp) + `NormalizeCorrect` |
 | `bridge.dfy` | `FoldNDeltaCorrect` — connects normalized derivative fold to `Matches` |
 | `compile.dfy` | `Compile` (BFS to DFA) + `DFAMatch` — both proven correct |
+| `minimize.dfy` | `Minimize` (Moore's algorithm) — verified DFA minimization, proven to preserve `Matches` |
+| `parse.dfy` | Recursive descent regex parser: standard syntax → `Exp<char>` |
+| `parse_test.dfy` | 38 test cases for the parser |
 | `codegen.dfy` | `Codegen` — generates a self-certifying Dafny matcher from a regex |
 | `gen_star_ab_a.dfy` | Example output of `Codegen` for `(a\|b)*a` — 2-state DFA, self-certifying |
 | `test.dfy` | Smoke tests |
@@ -48,10 +56,8 @@ No backtracking at any stage.
 ## Verify
 
 ```sh
-dafny verify re.dfy walk.dfy match.dfy normalize.dfy bridge.dfy compile.dfy codegen.dfy gen_star_ab_a.dfy
+dafny verify re.dfy walk.dfy match.dfy normalize.dfy bridge.dfy compile.dfy minimize.dfy parse.dfy codegen.dfy gen_star_ab_a.dfy
 ```
-
-Expected: **115 verified, 0 errors**.
 
 ## Run
 
@@ -77,12 +83,33 @@ MatchSpecialized(s)
 DFAMatch(Compile(e, alpha), e, s, alpha)
   == DFAAccepts(dfa, s, alpha)            compile.dfy (DFAMatch spec)
   == Matches(e, s)                        compile.dfy (DFAAcceptsCorrect)
+
+DFAAccepts(Minimize(dfa, e, alpha), s, alpha)
+  == Matches(e, s)                        minimize.dfy (Minimize ensures)
 ```
 
 Every arrow is a machine-checked Dafny proof. The generated matcher
 (`gen_star_ab_a.dfy`) has no maps, no expression types, no codatatypes
 at runtime — just integer state transitions verified against the
 denotational semantics.
+
+## Parser
+
+`parse.dfy` provides a recursive descent parser from standard regex
+string syntax to `Exp<char>`:
+
+```sh
+# Parse and match in one shot
+dafny run parse_test.dfy --target cs --no-verify
+```
+
+Supported syntax: literals, `|` (alternation), concatenation, `*`, `+`,
+`?`, grouping with `()`, character classes `[abc]`, and escape sequences.
+Standard precedence: postfix binds tightest, then concatenation, then `|`.
+
+The parser is unverified — it's a convenience layer. Correctness of
+matching is guaranteed by the downstream verified pipeline regardless
+of what expression the parser produces.
 
 ## Codegen
 
@@ -120,5 +147,7 @@ The generated file contains:
 - **BFS termination** in `Compile` (uses `decreases *`). Proving
   finiteness of derivative classes requires formalizing Brzozowski's
   theorem.
-- **`Comp(e, One) = e`** — Z3 timeout on the coinductive proof.
-- **`Star(Star(e)) = Star(e)`**, full ACI of `Plus`.
+- **`Star(Star(e)) = Star(e)`** — requires `Comp` associativity on
+  languages.
+- **Moore refinement termination** in `Minimize` (uses `decreases *`).
+  Bounded by `nStates` iterations but not yet formalized.

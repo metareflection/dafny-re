@@ -94,7 +94,10 @@ re.dfy
   └── normalize.dfy
         └── bridge.dfy
               ├── compile.dfy
+              │     └── minimize.dfy
+              ├── codegen.dfy
               └── gen_star_ab_a.dfy
+  parse.dfy (includes re.dfy)
 ```
 
 ## What Is Proven
