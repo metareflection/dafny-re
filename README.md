@@ -186,6 +186,18 @@ DFAAccepts(Minimize(dfa, e, alpha), s, alpha)
 
 Every arrow is a machine-checked Dafny proof.
 
+Additionally:
+
+- `Match` is correct against `Matches` (denotational spec)
+- `Normalize` preserves semantics up to bisimilarity, for any `normPlus` satisfying `NormPlusSpec`
+- Full ACI of `Plus` on languages: commutativity, associativity, idempotence
+- `Comp(L, One()) ~ L` and `Comp(One(), L) ~ L` (both identity laws)
+- `Compile` produces a correct DFA (`DFAAccepts <==> Matches`)
+- `Minimize` produces a correct minimized DFA (`DFAAccepts <==> Matches`)
+- Generated matchers are correct (`accepts == Eps(FoldNDelta(Normalize(e), s))`)
+- The bridge connects all formulations: `FoldNDelta` ↔ `Matches` ↔ `FoldDelta`
+- The parser is unverified (convenience layer; correctness guaranteed by the downstream pipeline)
+
 ## Codegen
 
 `Codegen` takes a regex and alphabet at runtime, runs BFS over
