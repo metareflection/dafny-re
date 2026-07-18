@@ -60,7 +60,10 @@ method Codegen(e: Exp<char>, alphabet: set<char>) returns (code: string)
   var alphaForall := CharConstraint("s[i]", alphaSeq);
   var alphaParam := CharConstraint("c", alphaSeq);
 
-  code := "// Auto-generated verified matcher\n";
+  code := "// Auto-generated verified matcher -- do not edit by hand; regenerate via Codegen.\n";
+  code := code + "// Dafny proves: MatchSpecialized(s) == Eps(FoldNDelta(Normalize(TheExpr()), s)).\n";
+  code := code + "// == Matches(TheExpr(), s) then follows by the library lemma FoldNDeltaCorrect\n";
+  code := code + "// (bridge.dfy) -- apply it in an outer shell where you want the full regex spec.\n";
   code := code + "include \"compile.dfy\"\n\n";
 
   // TheExpr

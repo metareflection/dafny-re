@@ -97,10 +97,20 @@ The output (`gen_star_ab_a.dfy`) contains:
 2. Each transition proven to match `NDelta` on ground terms
 3. `FoldTrans` proven to track `FoldNDelta` by induction
 4. No maps, no `Exp` types, no codatatypes at runtime
-5. `ensures accepts == Eps(FoldNDelta(Normalize(e), s))`
+5. `ensures accepts == Eps(FoldNDelta(Normalize(TheExpr()), s))`
 
-The bridge lemma `FoldNDeltaCorrect` (in `bridge.dfy`) connects this
-to the denotational semantics.
+For the full regex spec `accepts == Matches(TheExpr(), s)`, compose with
+`FoldNDeltaCorrect` (`bridge.dfy`) at the use site:
+
+```dafny
+accepts := MatchSpecialized(s);
+NormPlusSatisfiesSpec<char>();
+FoldNDeltaCorrect(TheExpr(), s, NormPlus);   // now: accepts == Matches(TheExpr(), s)
+```
+
+The generated file is verbatim `Codegen` output — do not edit it by hand;
+regenerate it (see `run_gen_star_ab_a.dfy`). The runnable demo lives separately
+in `demo_star_ab_a.dfy` so the generated artifact stays pure.
 
 ### Parser
 
@@ -124,7 +134,9 @@ verified pipeline regardless of what expression the parser produces.
 | `parse.dfy` | Recursive descent regex parser: standard syntax → `Exp<char>` |
 | `parse_test.dfy` | 38 test cases for the parser |
 | `codegen.dfy` | `Codegen` — generates a self-certifying Dafny matcher from a regex |
-| `gen_star_ab_a.dfy` | Example output of `Codegen` for `(a\|b)*a` — 2-state DFA, self-certifying |
+| `run_gen_star_ab_a.dfy` | Runner that (re)generates `gen_star_ab_a.dfy` for `(a\|b)*a` |
+| `gen_star_ab_a.dfy` | Verbatim `Codegen` output for `(a\|b)*a` — 2-state DFA, proves `accepts == Eps(FoldNDelta(...))` |
+| `demo_star_ab_a.dfy` | Runnable demo exercising `gen_star_ab_a.dfy` |
 | `test.dfy` | Smoke tests |
 
 ## Module Dependency Graph
@@ -138,7 +150,9 @@ re.dfy
               ├── compile.dfy
               │     └── minimize.dfy
               ├── codegen.dfy
+              │     └── run_gen_star_ab_a.dfy  (regenerates ↓)
               └── gen_star_ab_a.dfy
+                    └── demo_star_ab_a.dfy
   parse.dfy (includes re.dfy)
 ```
 
@@ -158,8 +172,8 @@ dafny verify re.dfy walk.dfy match.dfy normalize.dfy bridge.dfy compile.dfy mini
 # On-the-fly derivative matcher + verified DFA
 dafny run test.dfy --target cs --no-verify
 
-# Self-certifying specialized matcher for (a|b)*a
-dafny run gen_star_ab_a.dfy --target cs --no-verify
+# Self-certifying specialized matcher for (a|b)*a (demo of the generated file)
+dafny run demo_star_ab_a.dfy
 
 # Parser tests
 dafny run parse_test.dfy --target cs --no-verify
@@ -172,7 +186,7 @@ The complete verified chain:
 ```
 MatchSpecialized(s)
   == Eps(FoldNDelta(Normalize(e), s))     gen_star_ab_a.dfy
-  == Matches(e, s)                        bridge.dfy  (FoldNDeltaCorrect)
+  == Matches(e, s)                        bridge.dfy  (FoldNDeltaCorrect, composed at use site)
   == Eps(FoldDelta(e, s))                 walk.dfy    (MatchesEquivFoldDelta)
   == Match(e, s)                          match.dfy
 
@@ -194,7 +208,7 @@ Additionally:
 - `Comp(L, One()) ~ L` and `Comp(One(), L) ~ L` (both identity laws)
 - `Compile` produces a correct DFA (`DFAAccepts <==> Matches`)
 - `Minimize` produces a correct minimized DFA (`DFAAccepts <==> Matches`)
-- Generated matchers are correct (`accepts == Eps(FoldNDelta(Normalize(e), s))`)
+- Generated matchers prove `accepts == Eps(FoldNDelta(Normalize(e), s))`; composing with `FoldNDeltaCorrect` at the use site gives the full regex spec (`accepts == Matches(e, s)`)
 - The bridge connects all formulations: `FoldNDelta` ↔ `Matches` ↔ `FoldDelta`
 - The parser is unverified (convenience layer; correctness guaranteed by the downstream pipeline)
 
@@ -205,18 +219,17 @@ normalized derivatives, and prints a complete Dafny source file.
 The output is a self-certifying matcher — Dafny verifies it
 independently, with no trust required in the generator.
 
-```sh
-cat > my_codegen.dfy << 'EOF'
-include "codegen.dfy"
-method Main() decreases * {
-  var code := Codegen(Comp(Star(Plus(Char('a'), Char('b'))), Char('a')), {'a', 'b'});
-  print code;
-}
-EOF
+`run_gen_star_ab_a.dfy` is the committed runner for `(a|b)*a`. Build the
+native binary and run it for clean stdout (no verifier banner to strip), then
+check the artifact verifies independently:
 
-dafny run my_codegen.dfy --target cs --no-verify > gen_my_matcher.dfy
-dafny verify gen_my_matcher.dfy
+```sh
+dafny build --no-verify run_gen_star_ab_a.dfy && ./run_gen_star_ab_a > gen_star_ab_a.dfy
+dafny verify gen_star_ab_a.dfy
 ```
+
+For a different regex, copy `run_gen_star_ab_a.dfy`, swap the `Codegen(...)`
+call, and repeat.
 
 ## What is not proven
 
